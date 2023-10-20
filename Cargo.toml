@@ -19,3 +19,6 @@ heapless = { version = "0.7.14", default-features = false }
 embassy-time = "0.1.3"
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev="cd9a65b", features = ["nightly", "integrated-timers"] }
 static_cell = "1.2.0"
+rotary-encoder-hal = "0.5.0"
+embassy-sync = "0.3.0"
+embassy-futures = "0.1.0"

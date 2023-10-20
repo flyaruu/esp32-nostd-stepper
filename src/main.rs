@@ -5,14 +5,16 @@
 extern crate alloc;
 use core::mem::MaybeUninit;
 use embassy_executor::Executor;
+use embassy_futures::select::select;
 use embassy_time::{Timer, Duration};
 use esp_backtrace as _;
 use esp_println::println;
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, Delay, IO, timer::TimerGroup, embassy, gpio::{Output, PushPull, Gpio4, Gpio3}};
+use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, Delay, IO, timer::TimerGroup, embassy, gpio::{Output, PushPull, Gpio4, Gpio3, PullUp, Input, Gpio5}};
 
 use esp_wifi::{initialize, EspWifiInitFor};
 
 use hal::{systimer::SystemTimer, Rng};
+use rotary_encoder_hal::Rotary;
 use static_cell::StaticCell;
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -27,12 +29,19 @@ fn init_heap() {
 }
 
 #[embassy_executor::task]
-async fn blink_green(mut pin: Gpio4<Output<PushPull>>) {
+async fn encoder(pin_a: Gpio4<Input<PullUp>>,pin_b: Gpio5<Input<PullUp>>) {
+    let mut rotary = Rotary::new(pin_a, pin_b);
+    let mut count = 0_i64;
     loop {
-        println!("Loop...");
-        pin.toggle().unwrap();
-        // delay.delay_ms(500u32);
-        Timer::after(Duration::from_millis(200)).await;
+        let (pin_a,pin_b) = rotary.pins();
+        select(pin_a.wait_for_any_edge(),pin_b.wait_for_any_edge()).await;
+        let direction = rotary.update().unwrap();
+        match direction {
+            rotary_encoder_hal::Direction::Clockwise => count+=1,
+            rotary_encoder_hal::Direction::CounterClockwise => count-=1,
+            rotary_encoder_hal::Direction::None => (),
+        }
+        println!("Count: {}",count)
     }
 }
 
@@ -66,7 +75,10 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
     let pin3 = io.pins.gpio3.into_push_pull_output();
-    let pin4 = io.pins.gpio4.into_push_pull_output();
+    let pin4 = io.pins.gpio4.into_pull_up_input();
+    let pin5 = io.pins.gpio5.into_pull_up_input();
+
+    hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
 
     let executor = EXECUTOR.init(Executor::new());
     
@@ -74,8 +86,9 @@ fn main() -> ! {
     embassy::init(&clocks,timer_group.timer0);
 
     executor.run(|spawner| {
-        spawner.spawn(blink_green(pin4)).unwrap();
         spawner.spawn(blink_red(pin3)).unwrap();
+        spawner.spawn(encoder(pin4, pin5)).unwrap();
+
 
     });
 
